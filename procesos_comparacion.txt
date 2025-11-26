@@ -1,0 +1,6 @@
+# Caso de prueba para comparar algoritmos
+P1 0 CPU(10) 1 5
+P2 1 CPU(3) 2 3
+P3 2 CPU(6) 3 4
+P4 3 CPU(4) 1 2
+P5 4 CPU(8) 2 6
