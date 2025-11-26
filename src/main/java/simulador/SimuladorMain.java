@@ -91,17 +91,17 @@ public class SimuladorMain {
                         SwingUtilities.invokeLater(() -> {
                             window.updateQueues(ready, blocked, running, schedulerName);
                             window.updateMemory(memory);
-                            
-                            // Agregar al Gantt si hay proceso ejecutando
-                            if (running != null) {
-                                window.addGanttEntry(running.getPid(), engine.getCurrentTime(), 1);
-                            }
                         });
                     }
                     
                     @Override
                     public void onLog(String message) {
                         SwingUtilities.invokeLater(() -> window.appendLog(message));
+                    }
+                    
+                    @Override
+                    public void addGanttEntry(String pid, int startTime, int duration) {
+                        SwingUtilities.invokeLater(() -> window.addGanttEntry(pid, startTime, duration));
                     }
                 });
                 

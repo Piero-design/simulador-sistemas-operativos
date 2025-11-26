@@ -147,6 +147,11 @@ public class SchedulerEngine {
                 runningProcess.setStartTime(currentTime);
                 metrics.recordProcessStart(runningProcess.getPid(), currentTime);
             }
+            
+            // Agregar al diagrama de Gantt
+            if (guiCallback != null) {
+                guiCallback.addGanttEntry(runningProcess.getPid(), currentTime, quantum);
+            }
         }
     }
     
@@ -169,6 +174,11 @@ public class SchedulerEngine {
                 " ejecutando CPU por " + timeToExecute + " unidades");
             
             metrics.recordCPUBusy(timeToExecute);
+            
+            // Actualizar Gantt con duración real
+            if (guiCallback != null) {
+                guiCallback.addGanttEntry(runningProcess.getPid(), currentTime, timeToExecute);
+            }
             
             // Simular ejecución (ya avanzamos el tiempo en el loop)
             runningProcess.nextBurst();
@@ -305,5 +315,6 @@ public class SchedulerEngine {
         void onUpdate(List<Process> ready, List<Process> blocked, 
                      Process running, String schedulerName, MemoryManager memory);
         void onLog(String message);
+        void addGanttEntry(String pid, int startTime, int duration);
     }
 }
