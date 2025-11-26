@@ -34,127 +34,88 @@ public class SimuladorMain {
         SwingUtilities.invokeLater(() -> {
             MainWindow window = new MainWindow();
             
-            // Ejemplo de uso - puedes comentar esto y usar los botones de la GUI
-            runExampleSimulation(window);
+            // Iniciar simulación completa
+            runFullSimulation(window);
         });
     }
     
     /**
-     * Ejemplo de simulación automática
-     * Esta es una demostración de cómo usar el simulador
+     * Simulación completa y funcional
      */
-    private static void runExampleSimulation(MainWindow window) {
-        try {
-            window.appendLog("═══════════════════════════════════════");
-            window.appendLog("Cargando configuración del simulador...");
-            window.appendLog("═══════════════════════════════════════\n");
-            
-            // 1. Cargar procesos desde archivo
-            List<Process> processes = ProcessParser.parseFile("procesos.txt");
-            window.appendLog("✓ Cargados " + processes.size() + " procesos desde procesos.txt\n");
-            
-            // 2. Configurar parámetros
-            int totalFrames = 16;
-            String schedAlgorithm = "RR"; // FCFS, SJF, RR
-            int quantum = 3;
-            String memAlgorithm = "LRU"; // FIFO, LRU, Optimal
-            
-            window.appendLog("Configuración:");
-            window.appendLog("  - Algoritmo de planificación: " + schedAlgorithm);
-            if (schedAlgorithm.equals("RR")) {
-                window.appendLog("  - Quantum: " + quantum);
-            }
-            window.appendLog("  - Algoritmo de memoria: " + memAlgorithm);
-            window.appendLog("  - Marcos de memoria: " + totalFrames);
-            window.appendLog("");
-            
-            // 3. Crear componentes
-            ProcessSync sync = new ProcessSync();
-            PageReplacement memAlg = createMemoryAlgorithm(memAlgorithm, processes);
-            MemoryManager memoryManager = new MemoryManager(totalFrames, memAlg);
-            CPUScheduler scheduler = createScheduler(schedAlgorithm, quantum);
-            IOManager ioManager = new IOManager(sync);
-            Metrics metrics = new Metrics();
-            
-            window.appendLog("✓ Componentes inicializados\n");
-            window.appendLog("═══════════════════════════════════════");
-            window.appendLog("Iniciando simulación...");
-            window.appendLog("═══════════════════════════════════════\n");
-            
-            // 4. Simular (versión simplificada)
-            int currentTime = 0;
-            List<Process> readyQueue = new ArrayList<>();
-            List<Process> blockedQueue = new ArrayList<>();
-            Process runningProcess = null;
-            
-            // Ordenar procesos por tiempo de llegada
-            processes.sort(Comparator.comparingInt(Process::getArrivalTime));
-            
-            // Agregar procesos que llegan al tiempo 0
-            for (Process p : processes) {
-                if (p.getArrivalTime() == 0) {
-                    p.setState(Process.State.READY);
-                    scheduler.addProcess(p);
-                    readyQueue.add(p);
-                    metrics.recordProcessArrival(p);
-                    window.appendLog("[t=" + currentTime + "] " + p.getPid() + " -> LISTO");
-                }
-            }
-            
-            // Actualizar GUI inicial
-            window.updateQueues(readyQueue, blockedQueue, runningProcess, scheduler.getName());
-            window.updateMemory(memoryManager);
-            
-            // Simular algunos pasos
-            for (int step = 0; step < 5 && !readyQueue.isEmpty(); step++) {
-                currentTime++;
+    private static void runFullSimulation(MainWindow window) {
+        new Thread(() -> {
+            try {
+                window.appendLog("═══════════════════════════════════════");
+                window.appendLog("Cargando configuración del simulador...");
+                window.appendLog("═══════════════════════════════════════\n");
                 
-                // Obtener siguiente proceso
-                runningProcess = scheduler.getNextProcess();
-                if (runningProcess != null) {
-                    runningProcess.setState(Process.State.RUNNING);
-                    readyQueue.remove(runningProcess);
-                    
-                    window.appendLog("[t=" + currentTime + "] " + runningProcess.getPid() + " -> EJECUTANDO");
-                    
-                    // Cargar páginas en memoria
-                    if (memoryManager.loadProcessPages(runningProcess)) {
-                        window.appendLog("[t=" + currentTime + "] Páginas cargadas para " + runningProcess.getPid());
-                    }
-                    
-                    // Agregar entrada al Gantt
-                    window.addGanttEntry(runningProcess.getPid(), currentTime, 2);
-                    
-                    // Actualizar GUI
-                    window.updateQueues(readyQueue, blockedQueue, runningProcess, scheduler.getName());
-                    window.updateMemory(memoryManager);
-                    
-                    Thread.sleep(1000); // Pausa para visualización
-                    
-                    // Volver a ready (simulación simplificada)
-                    runningProcess.setState(Process.State.READY);
-                    if (runningProcess.hasMoreBursts()) {
-                        scheduler.addProcess(runningProcess);
-                        readyQueue.add(runningProcess);
-                    }
+                // 1. Cargar procesos desde archivo
+                List<Process> processes = ProcessParser.parseFile("procesos.txt");
+                window.appendLog("✓ Cargados " + processes.size() + " procesos desde procesos.txt\n");
+                
+                // 2. Configurar parámetros
+                int totalFrames = 12;
+                String schedAlgorithm = "RR"; // FCFS, SJF, RR
+                int quantum = 2;
+                String memAlgorithm = "LRU"; // FIFO, LRU, Optimal
+                
+                window.appendLog("Configuración:");
+                window.appendLog("  - Algoritmo de planificación: " + schedAlgorithm);
+                if (schedAlgorithm.equals("RR")) {
+                    window.appendLog("  - Quantum: " + quantum);
                 }
+                window.appendLog("  - Algoritmo de memoria: " + memAlgorithm);
+                window.appendLog("  - Marcos de memoria: " + totalFrames);
+                window.appendLog("");
+                
+                // 3. Crear componentes
+                ProcessSync sync = new ProcessSync();
+                PageReplacement memAlg = createMemoryAlgorithm(memAlgorithm, processes);
+                MemoryManager memoryManager = new MemoryManager(totalFrames, memAlg);
+                CPUScheduler scheduler = createScheduler(schedAlgorithm, quantum);
+                IOManager ioManager = new IOManager(sync);
+                Metrics metrics = new Metrics();
+                
+                window.appendLog("✓ Componentes inicializados\n");
+                
+                // 4. Crear y configurar el motor del planificador
+                SchedulerEngine engine = new SchedulerEngine(
+                    processes, scheduler, memoryManager, sync, ioManager, metrics, quantum
+                );
+                
+                // Configurar callback para actualizar GUI
+                engine.setGUICallback(new SchedulerEngine.GUICallback() {
+                    @Override
+                    public void onUpdate(List<Process> ready, List<Process> blocked, 
+                                       Process running, String schedulerName, MemoryManager memory) {
+                        SwingUtilities.invokeLater(() -> {
+                            window.updateQueues(ready, blocked, running, schedulerName);
+                            window.updateMemory(memory);
+                            
+                            // Agregar al Gantt si hay proceso ejecutando
+                            if (running != null) {
+                                window.addGanttEntry(running.getPid(), engine.getCurrentTime(), 1);
+                            }
+                        });
+                    }
+                    
+                    @Override
+                    public void onLog(String message) {
+                        SwingUtilities.invokeLater(() -> window.appendLog(message));
+                    }
+                });
+                
+                // 5. Iniciar simulación
+                engine.start();
+                
+                // 6. Mostrar métricas finales
+                window.setStatus("Simulación completada - Ver log para métricas detalladas");
+                
+            } catch (Exception e) {
+                window.appendLog("ERROR: " + e.getMessage());
+                e.printStackTrace();
             }
-            
-            window.appendLog("\n═══════════════════════════════════════");
-            window.appendLog("Simulación completada (demo simplificada)");
-            window.appendLog("═══════════════════════════════════════");
-            window.appendLog(memoryManager.getMemoryStatus());
-            window.appendLog("\nNota: Esta es una demostración básica.");
-            window.appendLog("Para implementar la simulación completa,");
-            window.appendLog("integre todos los módulos según el diseño.");
-            
-            // Cerrar IO Manager
-            ioManager.shutdown();
-            
-        } catch (Exception e) {
-            window.appendLog("ERROR: " + e.getMessage());
-            e.printStackTrace();
-        }
+        }).start();
     }
     
     private static CPUScheduler createScheduler(String algorithm, int quantum) {

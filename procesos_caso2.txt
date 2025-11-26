@@ -1,0 +1,7 @@
+# Casos de prueba avanzados para el simulador
+# Caso 2: Procesos con alta demanda de memoria
+
+P6 0 CPU(5),IO(2),CPU(4),IO(1),CPU(3) 1 8 [0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7]
+P7 1 CPU(3),IO(4),CPU(6) 2 6 [0,1,2,3,4,5,1,2,3,4,0,1]
+P8 2 CPU(7),IO(3),CPU(2),IO(2),CPU(5) 1 7 [0,1,2,3,4,5,6,2,3,4,5,0,1,2]
+P9 4 CPU(4),IO(1),CPU(3) 3 5 [0,1,2,3,4,1,2,3,0,1]
