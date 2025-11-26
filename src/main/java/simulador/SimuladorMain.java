@@ -34,8 +34,25 @@ public class SimuladorMain {
         SwingUtilities.invokeLater(() -> {
             MainWindow window = new MainWindow();
             
-            // Iniciar simulación completa
-            runFullSimulation(window);
+            // Configurar callback para iniciar simulación cuando se presione el botón
+            window.setOnStartCallback(() -> {
+                new Thread(() -> runFullSimulation(window)).start();
+            });
+            
+            // Auto-iniciar simulación (para pruebas)
+            // Comentar esta línea si quieres que espere al botón
+            new Thread(() -> {
+                try {
+                    Thread.sleep(1000); // Esperar a que la ventana se renderice
+                    SwingUtilities.invokeLater(() -> {
+                        window.appendLog("Auto-iniciando simulación en 1 segundo...");
+                    });
+                    Thread.sleep(1000);
+                    runFullSimulation(window);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }).start();
         });
     }
     
@@ -109,7 +126,9 @@ public class SimuladorMain {
                 engine.start();
                 
                 // 6. Mostrar métricas finales
-                window.setStatus("Simulación completada - Ver log para métricas detalladas");
+                SwingUtilities.invokeLater(() -> {
+                    window.simulationCompleted();
+                });
                 
             } catch (Exception e) {
                 window.appendLog("ERROR: " + e.getMessage());

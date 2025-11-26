@@ -14,6 +14,13 @@ public class MainWindow extends JFrame {
     private ProcessQueuesPanel queuesPanel;
     private JTextArea logArea;
     private JLabel statusLabel;
+    private JButton loadButton;
+    private JButton startButton;
+    private JButton pauseButton;
+    private JButton clearButton;
+    private Runnable onStartCallback;
+    private Runnable onPauseCallback;
+    private boolean simulationStarted = false;
     
     public MainWindow() {
         setTitle("Simulador de Sistema Operativo - Gestión de Procesos y Memoria");
@@ -67,10 +74,19 @@ public class MainWindow extends JFrame {
         
         // Botones de control
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton loadButton = new JButton("Cargar Procesos");
-        JButton startButton = new JButton("Iniciar Simulación");
-        JButton pauseButton = new JButton("Pausar");
-        JButton clearButton = new JButton("Limpiar");
+        loadButton = new JButton("Cargar Procesos");
+        startButton = new JButton("Iniciar Simulación");
+        pauseButton = new JButton("Pausar");
+        clearButton = new JButton("Limpiar");
+        
+        // Configurar estado inicial
+        pauseButton.setEnabled(false);
+        
+        // Conectar eventos
+        loadButton.addActionListener(e -> onLoadProcesses());
+        startButton.addActionListener(e -> onStartSimulation());
+        pauseButton.addActionListener(e -> onPauseSimulation());
+        clearButton.addActionListener(e -> onClearAll());
         
         buttonPanel.add(loadButton);
         buttonPanel.add(startButton);
@@ -117,6 +133,67 @@ public class MainWindow extends JFrame {
     public void clearAll() {
         ganttPanel.clear();
         logArea.setText("");
+    }
+    
+    // ===== Métodos de control =====
+    
+    private void onLoadProcesses() {
+        JFileChooser fileChooser = new JFileChooser(".");
+        fileChooser.setDialogTitle("Seleccionar archivo de procesos");
+        int result = fileChooser.showOpenDialog(this);
+        
+        if (result == JFileChooser.APPROVE_OPTION) {
+            String filename = fileChooser.getSelectedFile().getName();
+            appendLog("Archivo seleccionado: " + filename);
+            setStatus("Archivo cargado: " + filename + ". Presione 'Iniciar Simulación' para comenzar.");
+        }
+    }
+    
+    private void onStartSimulation() {
+        if (!simulationStarted) {
+            simulationStarted = true;
+            startButton.setEnabled(false);
+            pauseButton.setEnabled(true);
+            loadButton.setEnabled(false);
+            
+            if (onStartCallback != null) {
+                onStartCallback.run();
+            }
+            
+            setStatus("Simulación en ejecución...");
+        }
+    }
+    
+    private void onPauseSimulation() {
+        if (onPauseCallback != null) {
+            onPauseCallback.run();
+        }
+        setStatus("Simulación pausada");
+    }
+    
+    private void onClearAll() {
+        clearAll();
+        simulationStarted = false;
+        startButton.setEnabled(true);
+        pauseButton.setEnabled(false);
+        loadButton.setEnabled(true);
+        setStatus("Simulador reiniciado. Cargue un archivo de procesos para comenzar.");
+    }
+    
+    public void setOnStartCallback(Runnable callback) {
+        this.onStartCallback = callback;
+    }
+    
+    public void setOnPauseCallback(Runnable callback) {
+        this.onPauseCallback = callback;
+    }
+    
+    public void simulationCompleted() {
+        startButton.setEnabled(false);
+        pauseButton.setEnabled(false);
+        loadButton.setEnabled(true);
+        clearButton.setEnabled(true);
+        setStatus("Simulación completada. Ver log para métricas detalladas.");
     }
     
     public GanttPanel getGanttPanel() { return ganttPanel; }
