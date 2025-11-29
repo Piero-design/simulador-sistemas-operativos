@@ -16,6 +16,7 @@ import java.io.File;
 public class MainWindow extends JFrame implements Simulator.SimulationListener {
 
     private Simulator simulator;
+    private GanttPanel ganttPanel;  // ¡Panel del diagrama de Gantt!
     private JTextArea logArea;
     private JTextArea metricsArea;
     private JTable processTable;
@@ -37,6 +38,10 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
     private JButton startButton;
     private JButton stopButton;
     private JButton resetButton;
+    
+    // Variables para tracking del Gantt
+    private String lastRunningProcess = null;
+    private int lastExecutionTime = 0;
 
     public MainWindow() {
         setTitle("Simulador de Sistema Operativo - Planificación y Memoria Virtual");
@@ -72,6 +77,9 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         startButton.setEnabled(false);
         stopButton.setEnabled(false);
         
+        // ¡PANEL DE GANTT!
+        ganttPanel = new GanttPanel();
+        
         // Área de log
         logArea = new JTextArea(10, 40);
         logArea.setEditable(false);
@@ -105,33 +113,42 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         JPanel configPanel = createConfigPanel();
         add(configPanel, BorderLayout.NORTH);
         
-        // Panel central - Visualización
-        JPanel centerPanel = new JPanel(new GridLayout(2, 2, 10, 10));
+        // Panel central - Visualización con Gantt arriba
+        JPanel centerPanel = new JPanel(new BorderLayout(10, 10));
+        
+        // ¡GANTT EN LA PARTE SUPERIOR!
+        JPanel ganttContainer = new JPanel(new BorderLayout());
+        ganttContainer.add(new JScrollPane(ganttPanel), BorderLayout.CENTER);
+        centerPanel.add(ganttContainer, BorderLayout.NORTH);
+        
+        // Grid con el resto de los paneles
+        JPanel gridPanel = new JPanel(new GridLayout(2, 2, 10, 10));
         
         // Panel de procesos
         JPanel processPanel = new JPanel(new BorderLayout());
         processPanel.setBorder(new TitledBorder("Cola de Procesos"));
         processPanel.add(new JScrollPane(processTable), BorderLayout.CENTER);
-        centerPanel.add(processPanel);
+        gridPanel.add(processPanel);
         
         // Panel de memoria
         JPanel memoryPanel = new JPanel(new BorderLayout());
         memoryPanel.setBorder(new TitledBorder("Estado de Memoria"));
         memoryPanel.add(new JScrollPane(memoryTable), BorderLayout.CENTER);
-        centerPanel.add(memoryPanel);
+        gridPanel.add(memoryPanel);
         
         // Panel de log
         JPanel logPanel = new JPanel(new BorderLayout());
         logPanel.setBorder(new TitledBorder("Log de Eventos"));
         logPanel.add(new JScrollPane(logArea), BorderLayout.CENTER);
-        centerPanel.add(logPanel);
+        gridPanel.add(logPanel);
         
         // Panel de métricas
         JPanel metricsPanel = new JPanel(new BorderLayout());
         metricsPanel.setBorder(new TitledBorder("Métricas de Desempeño"));
         metricsPanel.add(new JScrollPane(metricsArea), BorderLayout.CENTER);
-        centerPanel.add(metricsPanel);
+        gridPanel.add(metricsPanel);
         
+        centerPanel.add(gridPanel, BorderLayout.CENTER);
         add(centerPanel, BorderLayout.CENTER);
         
         // Panel inferior - Estado
@@ -299,9 +316,14 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         memoryTableModel.setRowCount(0);
         logArea.setText("");
         metricsArea.setText("");
+        ganttPanel.clear();  // ¡Limpiar el Gantt!
         progressBar.setValue(0);
         timeLabel.setText("Tiempo: 0");
         statusLabel.setText("Listo para cargar procesos");
+        
+        // Resetear tracking del Gantt
+        lastRunningProcess = null;
+        lastExecutionTime = 0;
         
         loadButton.setEnabled(true);
         startButton.setEnabled(false);
@@ -362,10 +384,18 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         progressBar.setIndeterminate(false);
         progressBar.setValue(100);
         
+        // Cerrar última entrada del Gantt si quedó abierta
+        if (lastRunningProcess != null && simulator != null) {
+            int currentTime = simulator.getCurrentTime();
+            ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, currentTime);
+            lastRunningProcess = null;
+        }
+        
         // Mostrar métricas
         String report = metrics.generateReport();
         metricsArea.setText(report);
         log("\n" + report);
+        log("\n" + ganttPanel.getExecutionSummary());  // ¡Agregar resumen del Gantt!
         
         stopButton.setEnabled(false);
         resetButton.setEnabled(true);
@@ -400,7 +430,40 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
             timeLabel.setText("Tiempo: " + time);
             updateProcessTable();
             updateMemoryTable();
+            updateGanttChart(time);
         });
+    }
+    
+    /**
+     * Actualiza el diagrama de Gantt detectando cambios en el proceso en ejecución
+     */
+    private void updateGanttChart(int currentTime) {
+        if (simulator == null) return;
+        
+        // Buscar el proceso que está RUNNING
+        String runningPid = null;
+        for (Process p : simulator.getProcesses()) {
+            if (p.getState() == Process.State.RUNNING) {
+                runningPid = p.getPid();
+                break;
+            }
+        }
+        
+        // Si cambió el proceso en ejecución, registrar en Gantt
+        if (runningPid != null && !runningPid.equals(lastRunningProcess)) {
+            // Si había un proceso anterior, cerrar su entrada
+            if (lastRunningProcess != null) {
+                ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, currentTime);
+            }
+            // Iniciar nueva entrada
+            lastRunningProcess = runningPid;
+            lastExecutionTime = currentTime;
+        }
+        // Si el proceso terminó (no hay nadie running)
+        else if (runningPid == null && lastRunningProcess != null) {
+            ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, currentTime);
+            lastRunningProcess = null;
+        }
     }
 
     public static void main(String[] args) {
