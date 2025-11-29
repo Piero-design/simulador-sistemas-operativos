@@ -1,0 +1,12 @@
+# Configuración del simulador
+# Número total de marcos de memoria
+FRAMES=10
+
+# Algoritmo de planificación: FCFS, SJF, RR
+SCHEDULER=RR
+
+# Quantum para Round Robin
+QUANTUM=3
+
+# Algoritmo de reemplazo de páginas: FIFO, LRU, Optimal
+MEMORY_ALGORITHM=LRU

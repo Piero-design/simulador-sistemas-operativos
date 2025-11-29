@@ -23,9 +23,16 @@
 hs_err_pid*
 replay_pid*
 
-# IDE and build directories
+# IDEs
 .idea/
-target/
+.vscode/
+*.iml
 
-# OS files
+# Build directories
+target/
+out/
+out-vsvirtual/
+build/
+
+# macOS
 .DS_Store

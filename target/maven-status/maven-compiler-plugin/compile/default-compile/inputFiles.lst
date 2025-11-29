@@ -1,0 +1,17 @@
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/core/Simulator.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/gui/MainWindow.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/io/IOManager.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/memory/FIFO.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/memory/LRU.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/memory/MemoryManager.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/memory/Optimal.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/memory/PageReplacement.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/metrics/MetricsCollector.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/process/Process.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/process/ProcessThread.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/scheduler/CPUScheduler.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/scheduler/FCFS.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/scheduler/RoundRobin.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/scheduler/SJF.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/sync/SynchronizationManager.java
+/workspaces/simulador-sistemas-operativos/src/main/java/simulador/utils/FileParser.java
