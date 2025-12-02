@@ -419,6 +419,29 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
     }
 
     @Override
+    public void onProcessExecStart(Process process, int time) {
+        // Start a new Gantt entry for this process at simulator time `time`
+        SwingUtilities.invokeLater(() -> {
+            // Close previous if somehow left open
+            if (lastRunningProcess != null && !lastRunningProcess.equals(process.getPid())) {
+                ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, time);
+            }
+            lastRunningProcess = process.getPid();
+            lastExecutionTime = time;
+        });
+    }
+
+    @Override
+    public void onProcessExecEnd(Process process, int time) {
+        SwingUtilities.invokeLater(() -> {
+            if (lastRunningProcess != null && lastRunningProcess.equals(process.getPid())) {
+                ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, time);
+                lastRunningProcess = null;
+            }
+        });
+    }
+
+    @Override
     public void onIOCompleted(Process process) {
         log("Proceso " + process.getPid() + " completó E/S");
         SwingUtilities.invokeLater(this::updateProcessTable);
@@ -430,40 +453,17 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
             timeLabel.setText("Tiempo: " + time);
             updateProcessTable();
             updateMemoryTable();
-            updateGanttChart(time);
+            // Gantt updated via explicit exec start/end notifications
         });
     }
     
     /**
      * Actualiza el diagrama de Gantt detectando cambios en el proceso en ejecución
      */
+    // Gantt ahora se actualiza mediante notificaciones explícitas onProcessExecStart/onProcessExecEnd
+    @SuppressWarnings("unused")
     private void updateGanttChart(int currentTime) {
-        if (simulator == null) return;
-        
-        // Buscar el proceso que está RUNNING
-        String runningPid = null;
-        for (Process p : simulator.getProcesses()) {
-            if (p.getState() == Process.State.RUNNING) {
-                runningPid = p.getPid();
-                break;
-            }
-        }
-        
-        // Si cambió el proceso en ejecución, registrar en Gantt
-        if (runningPid != null && !runningPid.equals(lastRunningProcess)) {
-            // Si había un proceso anterior, cerrar su entrada
-            if (lastRunningProcess != null) {
-                ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, currentTime);
-            }
-            // Iniciar nueva entrada
-            lastRunningProcess = runningPid;
-            lastExecutionTime = currentTime;
-        }
-        // Si el proceso terminó (no hay nadie running)
-        else if (runningPid == null && lastRunningProcess != null) {
-            ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, currentTime);
-            lastRunningProcess = null;
-        }
+        // kept for backward-compatibility but no-op because Gantt entries are driven by Simulator events
     }
 
     public static void main(String[] args) {

@@ -15,6 +15,9 @@ public class SJF implements CPUScheduler {
 
     @Override
     public void addProcess(Process p) {
+        if (p == null) return;
+        if (p.getState() == Process.State.TERMINATED || p.getState() == Process.State.RUNNING) return;
+        if (queue.contains(p)) return;
         queue.add(p);
     }
 

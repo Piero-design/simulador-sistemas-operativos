@@ -30,6 +30,7 @@ public class Simulator {
     
     private volatile boolean running;
     private int currentTime;
+    // removed lastSelectedPid: ProcessThread now notifies END directly
 
     public Simulator(CPUScheduler scheduler, MemoryManager memoryManager) {
         this.scheduler = scheduler;
@@ -84,97 +85,114 @@ public class Simulator {
             // Ordenar procesos por tiempo de llegada
             processes.sort(Comparator.comparingInt(Process::getArrivalTime));
 
-            // Inicializar threads de procesos
-            for (Process process : processes) {
-                ProcessThread thread = new ProcessThread(process, memoryManager, syncManager, ioManager);
-                processThreads.add(thread);
-            }
+            // We'll run a single tick-driven loop here to avoid races between threads.
+            Map<String, Integer> remainingBurst = new HashMap<>();
+            Map<String, Integer> quantumRemaining = new HashMap<>();
+            Process currentProcess = null;
+            int currentQuantumLeft = Integer.MAX_VALUE;
 
-            // Crear un thread para manejar las llegadas de procesos
-            Thread arrivalHandler = new Thread(() -> {
-                try {
-                    for (Process process : processes) {
-                        // Esperar hasta el tiempo de llegada
-                        while (currentTime < process.getArrivalTime() && running) {
-                            Thread.sleep(100);
-                            currentTime++;
-                        }
+            while (running && !allProcessesTerminated()) {
+                // 1) Handle any I/O completions first
+                IOManager.IOCompletion completion;
+                while ((completion = ioManager.pollCompletion()) != null) {
+                    Process p = findProcessByPid(completion.getPid());
+                    if (p != null) {
+                        p.setState(Process.State.READY);
+                        scheduler.addProcess(p);
+                        notifyIOCompleted(p);
+                    }
+                }
 
-                        if (!running) break;
-
-                        // Agregar proceso al scheduler
+                // 2) Handle arrivals at this time
+                for (Process process : processes) {
+                    if (process.getState() == Process.State.NEW && process.getArrivalTime() <= getCurrentTime()) {
                         scheduler.addProcess(process);
                         process.setState(Process.State.READY);
                         notifyProcessArrived(process);
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 }
-            });
-            arrivalHandler.start();
 
-            // Thread principal del scheduler
-            Thread schedulerThread = new Thread(() -> {
-                try {
-                    while (running && !allProcessesTerminated()) {
-                        Process nextProcess = scheduler.getNextProcess();
-                        
-                        if (nextProcess != null) {
-                            // Buscar el thread correspondiente
-                            ProcessThread thread = findThreadByPid(nextProcess.getPid());
-                            
-                            if (thread != null && !thread.isAlive()) {
-                                // Iniciar el thread si no está corriendo
-                                thread.start();
-                                notifyProcessStarted(nextProcess);
-                            } else if (thread != null) {
-                                // Continuar ejecución
-                                syncManager.notifyMemoryReady(nextProcess.getPid());
+                // 3) If no current process, get one from scheduler
+                if (currentProcess == null) {
+                    currentProcess = scheduler.getNextProcess();
+                    if (currentProcess != null) {
+                        // Initialize remaining burst if needed (do NOT reset on every selection)
+                        int idx = currentProcess.getCurrentBurstIndex();
+                        String burst = currentProcess.getBursts().get(idx);
+                        if (burst.startsWith("CPU")) {
+                            int start = burst.indexOf('(') + 1;
+                            int end = burst.indexOf(')');
+                            int duration = Integer.parseInt(burst.substring(start, end));
+                            remainingBurst.putIfAbsent(currentProcess.getPid(), duration);
+                        }
+                        currentProcess.setState(Process.State.RUNNING);
+                        int q = Integer.MAX_VALUE;
+                        if (scheduler instanceof RoundRobin) q = ((RoundRobin) scheduler).getQuantum();
+                        quantumRemaining.put(currentProcess.getPid(), q);
+                        currentQuantumLeft = quantumRemaining.get(currentProcess.getPid());
+                        notifyProcessExecStart(currentProcess, getCurrentTime());
+                    }
+                }
+
+                // 3) Execute one time unit for currentProcess if exists
+                if (currentProcess != null) {
+                    // Execute 1 unit
+                    Thread.sleep(100);
+                    metricsCollector.addCPUTime(100L);
+                    // decrement remaining and quantum
+                    String pid = currentProcess.getPid();
+                    int rem = remainingBurst.getOrDefault(pid, 0) - 1;
+                    remainingBurst.put(pid, rem);
+                    int qleft = quantumRemaining.getOrDefault(pid, Integer.MAX_VALUE) - 1;
+                    quantumRemaining.put(pid, qleft);
+
+                    // advance logical time by 1
+                    advanceTime(1);
+
+                    // Check burst completion
+                    if (rem <= 0) {
+                        // CPU burst finished
+                        notifyProcessExecEnd(currentProcess, getCurrentTime());
+                        currentProcess.setCurrentBurstIndex(currentProcess.getCurrentBurstIndex() + 1);
+                        // cleanup remaining/quantum for this pid
+                        remainingBurst.remove(pid);
+                        quantumRemaining.remove(pid);
+                        // If next is I/O, start it
+                        if (currentProcess.getCurrentBurstIndex() < currentProcess.getBursts().size()) {
+                            String nextBurst = currentProcess.getBursts().get(currentProcess.getCurrentBurstIndex());
+                            if (nextBurst.startsWith("E/S") || nextBurst.startsWith("I/O")) {
+                                int s = nextBurst.indexOf('(') + 1;
+                                int e = nextBurst.indexOf(')');
+                                int dur = Integer.parseInt(nextBurst.substring(s, e));
+                                currentProcess.setState(Process.State.BLOCKED);
+                                ioManager.startIOOperation(currentProcess, dur * 100);
+                            } else {
+                                // Next is CPU: requeue
+                                currentProcess.setState(Process.State.READY);
+                                scheduler.addProcess(currentProcess);
                             }
+                        } else {
+                            // Process finished all bursts
+                            currentProcess.setState(Process.State.TERMINATED);
+                            // ensure maps cleaned
+                            remainingBurst.remove(pid);
+                            quantumRemaining.remove(pid);
+                            currentProcess.setFinishTime(System.currentTimeMillis());
                         }
-
-                        Thread.sleep(100);
-                        currentTime++;
-                        notifyTimeAdvanced(currentTime);
+                        currentProcess = null;
+                    } else if (qleft <= 0) {
+                        // quantum expired: preempt
+                        notifyProcessExecEnd(currentProcess, getCurrentTime());
+                        currentProcess.setState(Process.State.READY);
+                        scheduler.addProcess(currentProcess);
+                        currentProcess = null;
                     }
-
-                    // Esperar a que todos los threads terminen
-                    for (ProcessThread thread : processThreads) {
-                        if (thread.isAlive()) {
-                            thread.join(5000);
-                        }
-                    }
-
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                } else {
+                    // idle tick
+                    Thread.sleep(100);
+                    advanceTime(1);
                 }
-            });
-            schedulerThread.start();
-
-            // Thread para manejar E/S completadas
-            Thread ioCompletionThread = new Thread(() -> {
-                try {
-                    while (running) {
-                        IOManager.IOCompletion completion = ioManager.pollCompletion();
-                        if (completion != null) {
-                            syncManager.unblockProcess(completion.getPid());
-                            Process process = findProcessByPid(completion.getPid());
-                            if (process != null) {
-                                process.setState(Process.State.READY);
-                                scheduler.addProcess(process);
-                                notifyIOCompleted(process);
-                            }
-                        }
-                        Thread.sleep(50);
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            });
-            ioCompletionThread.start();
-
-            // Esperar a que termine el scheduler
-            schedulerThread.join();
+            }
 
             // Finalizar simulación
             finishSimulation();
@@ -259,8 +277,19 @@ public class Simulator {
         return running;
     }
 
-    public int getCurrentTime() {
+    public synchronized int getCurrentTime() {
         return currentTime;
+    }
+
+    /**
+     * Avanza el reloj lógico de la simulación de forma atómica y notifica listeners.
+     * @param delta unidades a avanzar
+     * @return el nuevo tiempo actual
+     */
+    public synchronized int advanceTime(int delta) {
+        this.currentTime += delta;
+        notifyTimeAdvanced(this.currentTime);
+        return this.currentTime;
     }
 
     // Sistema de eventos para la UI
@@ -321,5 +350,30 @@ public class Simulator {
         default void onProcessStarted(Process process) {}
         default void onIOCompleted(Process process) {}
         default void onTimeAdvanced(int time) {}
+        default void onProcessExecStart(Process process, int time) {}
+        default void onProcessExecEnd(Process process, int time) {}
+    }
+
+    public void notifyProcessExecStart(Process process, int time) {
+        for (SimulationListener listener : listeners) {
+            listener.onProcessExecStart(process, time);
+        }
+        // persist to logfile for Gantt verification
+        try {
+            SimulationLogger.log("START " + process.getPid() + " " + time);
+        } catch (Exception e) {
+            System.err.println("[Simulator] Failed to write exec start log: " + e.getMessage());
+        }
+    }
+
+    public void notifyProcessExecEnd(Process process, int time) {
+        for (SimulationListener listener : listeners) {
+            listener.onProcessExecEnd(process, time);
+        }
+        try {
+            SimulationLogger.log("END " + process.getPid() + " " + time);
+        } catch (Exception e) {
+            System.err.println("[Simulator] Failed to write exec end log: " + e.getMessage());
+        }
     }
 }

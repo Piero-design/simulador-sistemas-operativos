@@ -3,6 +3,9 @@ package simulador.process;
 import simulador.memory.MemoryManager;
 import simulador.sync.SynchronizationManager;
 import simulador.io.IOManager;
+import simulador.scheduler.CPUScheduler;
+import simulador.scheduler.RoundRobin;
+import simulador.metrics.MetricsCollector;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,9 +25,15 @@ public class ProcessThread extends Thread {
     private long endTime;
     private long waitingTime;
     private long turnaroundTime;
+    private final CPUScheduler scheduler;
+    private final MetricsCollector metricsCollector;
+    private final simulador.core.Simulator simulator;
+    private long waitStart;
 
-    public ProcessThread(Process process, MemoryManager memoryManager, 
-                        SynchronizationManager syncManager, IOManager ioManager) {
+    public ProcessThread(Process process, MemoryManager memoryManager,
+                        SynchronizationManager syncManager, IOManager ioManager,
+                        CPUScheduler scheduler, MetricsCollector metricsCollector,
+                        simulador.core.Simulator simulator) {
         super("Thread-" + process.getPid());
         this.process = process;
         this.memoryManager = memoryManager;
@@ -34,6 +43,10 @@ public class ProcessThread extends Thread {
         this.currentBurstIndex = 0;
         this.remainingBurstTime = 0;
         this.waitingTime = 0;
+        this.scheduler = scheduler;
+        this.metricsCollector = metricsCollector;
+        this.simulator = simulator;
+        this.waitStart = 0;
     }
 
     @Override
@@ -41,6 +54,8 @@ public class ProcessThread extends Thread {
         try {
             process.setState(Process.State.READY);
             logEvent("Process created and ready");
+            // mark waiting start (process is ready and waiting for CPU)
+            waitStart = System.currentTimeMillis();
 
             // Inicializar memoria del proceso
             memoryManager.initializeProcess(process);
@@ -84,25 +99,84 @@ public class ProcessThread extends Thread {
             syncManager.waitForMemory(process.getPid());
         }
 
-        // Adquirir CPU
-        syncManager.acquireCPU();
-        process.setState(Process.State.RUNNING);
-        
+        // Determine quantum (if RoundRobin)
+        int quantum = Integer.MAX_VALUE;
+        if (scheduler instanceof RoundRobin) {
+            quantum = ((RoundRobin) scheduler).getQuantum();
+        }
+
         if (startTime == 0) {
             startTime = System.currentTimeMillis();
         }
 
-        logEvent("Running on CPU");
+        // Ejecutar con preempción por quantum
+        while (remainingBurstTime > 0) {
+                // Attempt to acquire CPU
+            syncManager.acquireCPU();
+            try {
+                // We'll advance logical time atomically after executing runUnits
+                // update waiting time if applicable
+                if (waitStart > 0) {
+                    waitingTime += System.currentTimeMillis() - waitStart;
+                    waitStart = 0;
+                }
 
-        // Simular ejecución de CPU
-        Thread.sleep(duration * 100); // 100ms por unidad de tiempo
-        remainingBurstTime = 0;
+                process.setState(Process.State.RUNNING);
+                logEvent("Running on CPU (remaining=" + remainingBurstTime + ")");
 
-        // Liberar CPU
-        syncManager.releaseCPU();
-        process.setState(Process.State.READY);
-        
-        logEvent("CPU burst completed");
+                int runUnits = Math.min(remainingBurstTime, quantum);
+
+                // Execute unit-by-unit so arrivals and scheduler can observe time progression
+                for (int i = 0; i < runUnits; i++) {
+                    Thread.sleep(100); // 1 unidad = 100ms
+                    remainingBurstTime--;
+                    try {
+                        if (simulator != null) simulator.advanceTime(1);
+                    } catch (Exception ex) {
+                        // ignore
+                    }
+                }
+
+                // record CPU time
+                if (metricsCollector != null) {
+                    metricsCollector.addCPUTime(runUnits * 100L);
+                }
+
+                // Notify END at the current logical time
+                try {
+                    if (simulator != null) simulator.notifyProcessExecEnd(process, simulator.getCurrentTime());
+                } catch (Exception ex) {
+                    // ignore logging errors
+                }
+
+                // finished runUnits
+                if (remainingBurstTime > 0) {
+                    // quantum expired — preempt
+                    logEvent("Quantum expired for pid=" + process.getPid() + ", remaining=" + remainingBurstTime);
+                    process.setState(Process.State.READY);
+                    // re-add to scheduler queue so it can be scheduled again
+                    try {
+                        scheduler.addProcess(process);
+                    } catch (Exception ex) {
+                        // ignore if scheduler doesn't support add at this point
+                    }
+                } else {
+                    logEvent("CPU burst completed");
+                    process.setState(Process.State.READY);
+                }
+
+            } finally {
+                // Release CPU for next process / context switch
+                syncManager.releaseCPU();
+            }
+
+            if (remainingBurstTime > 0) {
+                // Block this thread until scheduler unblocks it
+                logEvent("Blocking thread pid=" + process.getPid() + " waiting to be rescheduled");
+                syncManager.blockProcess(process.getPid());
+                logEvent("Resumed thread pid=" + process.getPid());
+            }
+        }
     }
 
     private void executeIOBurst(String burst) throws InterruptedException {
@@ -117,8 +191,10 @@ public class ProcessThread extends Thread {
         
         // Esperar a que termine la E/S
         syncManager.blockProcess(process.getPid());
-        
+
+        // When unblocked after I/O completion, move to READY and start waiting timer
         process.setState(Process.State.READY);
+        waitStart = System.currentTimeMillis();
         logEvent("I/O burst completed");
     }
 
@@ -130,7 +206,9 @@ public class ProcessThread extends Thread {
     }
 
     private void logEvent(String event) {
-        executionLog.add(new ExecutionEvent(System.currentTimeMillis(), event));
+        long ts = System.currentTimeMillis();
+        executionLog.add(new ExecutionEvent(ts, event));
+        System.out.println("[ProcessThread] [" + ts + "] PID=" + process.getPid() + " - " + event);
     }
 
     public Process getProcess() {
