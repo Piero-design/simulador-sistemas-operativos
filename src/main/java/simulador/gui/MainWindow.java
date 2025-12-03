@@ -432,6 +432,11 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         log("\n" + report);
         log("\n" + ganttPanel.getExecutionSummary());  // ¡Agregar resumen del Gantt!
         
+        SwingUtilities.invokeLater(() -> {
+            updateProcessTable();
+            updateMemoryTable();
+        });
+
         stopButton.setEnabled(false);
         resetButton.setEnabled(true);
     }
