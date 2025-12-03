@@ -20,6 +20,7 @@ public class GanttPanel extends JPanel {
     private static final int TOP_MARGIN = 50;
     private static final int LEFT_MARGIN = 80;
     private static final int BOTTOM_MARGIN = 50;
+    private static final int MIN_WIDTH = 800;
     private static final Color CONTEXT_SWITCH_COLOR = new Color(169, 169, 169);
     
     private Map<String, Color> processColors;
@@ -40,8 +41,6 @@ public class GanttPanel extends JPanel {
         ioData = new ArrayList<>();
         processColors = new HashMap<>();
         maxTime = 0;
-        
-        setPreferredSize(new Dimension(800, 380));
         setBackground(Color.WHITE);
         setBorder(BorderFactory.createTitledBorder(
             BorderFactory.createLineBorder(Color.GRAY, 1),
@@ -50,6 +49,8 @@ public class GanttPanel extends JPanel {
             javax.swing.border.TitledBorder.TOP,
             new Font("Arial", Font.BOLD, 14)
         ));
+
+        updatePreferredSize();
     }
 
     /**
@@ -77,6 +78,7 @@ public class GanttPanel extends JPanel {
         }
 
         maxTime = Math.max(maxTime, endTime);
+        updatePreferredSize();
         repaint();
     }
 
@@ -97,6 +99,7 @@ public class GanttPanel extends JPanel {
         processColors.clear();
         maxTime = 0;
         colorIndex = 0;
+        updatePreferredSize();
         repaint();
     }
 
@@ -275,6 +278,7 @@ public class GanttPanel extends JPanel {
      */
     public void setPixelsPerUnit(int pixels) {
         this.pixelsPerUnit = Math.max(10, Math.min(pixels, 50));
+        updatePreferredSize();
         repaint();
     }
 
@@ -311,6 +315,14 @@ public class GanttPanel extends JPanel {
         }
         
         return sb.toString();
+    }
+
+    private void updatePreferredSize() {
+        int tracks = ioData.isEmpty() ? 1 : 2;
+        int baseHeight = TOP_MARGIN + tracks * (PROCESS_HEIGHT + 40) + BOTTOM_MARGIN + 80;
+        int width = Math.max(MIN_WIDTH, LEFT_MARGIN + maxTime * pixelsPerUnit + 200);
+        setPreferredSize(new Dimension(width, baseHeight));
+        revalidate();
     }
 
     /**
