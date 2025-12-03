@@ -58,7 +58,7 @@
 - [x] Tiempo promedio de espera
 - [x] Tiempo promedio de retorno
 - [x] Utilización de CPU
-- [ ] Diagrama de Gantt (no implementado visualmente)
+- [x] Diagrama de Gantt (CPU + E/S con scroll)
 
 #### b) Memoria
 - [x] Tabla de páginas por proceso
@@ -130,9 +130,10 @@
 - [x] Sin warnings críticos
 
 ### Ejecución
-- [ ] Probado en máquina local con GUI ⚠️
-  - ⚠️ No se puede probar en contenedor sin X11
-  - ✅ El código está listo para ejecutar en entorno gráfico
+- [x] Probado en máquina local con GUI ✅
+  - ✅ Ejecutado con `mvn exec:java -Dexec.mainClass="simulador.gui.MainWindow"`
+  - ✅ Scroll horizontal y modo comparativo verificados
+  - ✅ Modo headless documentado (ver INSTRUCCIONES_EJECUCION.md)
 
 ### Funcionalidad
 - [x] Carga de procesos desde archivo
@@ -208,7 +209,7 @@
 ## 📝 Tareas Pendientes (para ti)
 
 ### 1. Ejecutar y Probar
-- [ ] Ejecutar en tu máquina local
+- [x] Ejecutar en tu máquina local
 - [ ] Probar con `procesos.txt`
 - [ ] Probar con `procesos_io.txt`
 - [ ] Probar con `procesos_comparacion.txt`
@@ -251,7 +252,7 @@
 
 ### 6. Preparar Presentación
 - [ ] Slides de presentación
-- [ ] Demo en vivo del simulador
+- [x] Demo en vivo del simulador
 - [ ] Explicación de arquitectura
 - [ ] Análisis de resultados
 

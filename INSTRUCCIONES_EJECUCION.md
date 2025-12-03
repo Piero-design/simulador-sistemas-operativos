@@ -22,7 +22,7 @@
 cd simulador-sistemas-operativos
 
 # 2. Compilar el proyecto (si no está compilado)
-javac -d target/classes -sourcepath src/main/java src/main/java/simulador/**/*.java
+javac -d target/classes -sourcepath src/main/java $(find src/main/java -name "*.java")
 
 # 3. Ejecutar el simulador
 java -cp target/classes simulador.gui.MainWindow
@@ -35,12 +35,27 @@ java -cp target/classes simulador.gui.MainWindow
 3. Ejecutar el método `main()`
 4. La interfaz gráfica se abrirá automáticamente
 
+### **Opción 3: Modo headless (sin interfaz gráfica)**
+
+Ideal para generar métricas rápidamente desde consola. Utiliza la clase `simulador.core.HeadlessRunner`.
+
+```bash
+# Compilar si aún no lo hiciste
+mvn -q clean compile
+
+# Ejecutar la simulación (ejemplo con FCFS y costo de contexto 1)
+java -cp target/classes simulador.core.HeadlessRunner FCFS procesos.txt --cs 1
+
+# También puedes usar Maven directamente
+mvn exec:java -Dexec.mainClass="simulador.core.HeadlessRunner" -Dexec.args="RR 4 procesos_io.txt --cs 2"
+```
+
 ---
 
 ## 📖 USO DEL SIMULADOR
 
 ### **Paso 1: Cargar Procesos**
-1. Click en botón **[Load]**
+1. Pulsar el botón **Cargar Procesos**
 2. Seleccionar archivo de procesos (`.txt`)
 3. Archivos de ejemplo incluidos:
    - `procesos.txt` - Caso básico sin E/S
@@ -48,38 +63,37 @@ java -cp target/classes simulador.gui.MainWindow
    - `procesos_comparacion.txt` - Para comparar algoritmos
 
 ### **Paso 2: Configurar Simulación**
-1. Seleccionar algoritmo de planificación:
+1. Seleccionar algoritmo de planificación con el combo **Algoritmo de Planificación**:
    - FCFS (First Come First Served)
    - SJF (Shortest Job First)
    - Round Robin (especificar quantum)
 
-2. Seleccionar algoritmo de memoria:
+2. Seleccionar algoritmo de memoria en **Algoritmo de Memoria**:
    - FIFO (First In First Out)
    - LRU (Least Recently Used)
    - Óptimo (teórico)
 
-3. Configurar parámetros:
-   - Número de marcos de memoria (ej: 10)
-   - Quantum para Round Robin (ej: 3)
+3. Configurar parámetros adicionales:
+   - **Marcos de Memoria:** cantidad de marcos físicos disponibles (ej: 10).
+   - **Quantum:** solo habilitado para Round Robin (ej: 4).
+   - **Costo cambio de contexto:** unidades de tiempo que la CPU permanece ocupada durante un cambio de proceso (ej: 1).
 
 ### **Paso 3: Ejecutar Simulación**
-1. Click en botón **[Start]**
+1. Pulsar **Iniciar Simulación**.
 2. Observar la ejecución en tiempo real:
-   - **Diagrama de Gantt:** Muestra qué proceso ejecuta en cada momento
-   - **Panel de Memoria:** Estado de los marcos de memoria
-   - **Colas de Procesos:** Procesos en READY, RUNNING, BLOCKED
-   - **Log de Eventos:** Historial de acciones
+   - **Diagrama de Gantt:** ahora contiene dos pistas (CPU y E/S) y muestra los cambios de contexto (segmentos grises). Si el timeline es más largo que la ventana, aparece una barra horizontal para desplazarse.
+   - **Panel de Memoria:** refleja los marcos ocupados con PID y número de página, actualizados en vivo.
+   - **Cola de Procesos:** lista todos los procesos con su estado actual (Nuevo, Listo, Ejecutando, Bloqueado, Terminado).
+   - **Log de Eventos y Ráfagas de E/S:** registra las transiciones relevantes para auditoría o análisis posterior.
 
 ### **Paso 4: Ver Resultados**
-1. Al finalizar, se muestran las métricas:
-   - Tiempo de espera promedio
-   - Tiempo de retorno promedio
-   - Utilización de CPU
-   - Fallos de página totales
-   - Reemplazos de página
+1. Al finalizar automáticamente, el panel **Métricas de Desempeño** muestra:
+   - Tiempo de espera, retorno y respuesta por proceso (en milisegundos).
+   - Promedios y utilización de CPU considerando tiempo de cambio de contexto.
+   - Fallos y reemplazos de página acumulados.
+   - Resumen textual del Gantt (CPU y E/S) para documentación.
 
-2. Botón **[Pause]** para pausar la simulación
-3. Botón **[Clear]** para limpiar y empezar de nuevo
+2. El botón **Detener** permite cortar una simulación en curso. Tras finalizar, usa **Reiniciar** para limpiar la interfaz y preparar nuevos parámetros.
 
 ---
 
