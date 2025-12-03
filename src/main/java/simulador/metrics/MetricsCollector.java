@@ -12,6 +12,7 @@ public class MetricsCollector {
     private final List<ProcessMetrics> processMetrics;
     private long totalCPUTime;
     private long totalIdleTime;
+    private long totalContextSwitchTime;
     private long simulationStartTime;
     private long simulationEndTime;
     private int totalPageFaults;
@@ -21,6 +22,7 @@ public class MetricsCollector {
         this.processMetrics = new ArrayList<>();
         this.totalCPUTime = 0;
         this.totalIdleTime = 0;
+        this.totalContextSwitchTime = 0;
     }
 
     public void startSimulation() {
@@ -33,15 +35,19 @@ public class MetricsCollector {
 
     public void recordProcess(ProcessThread thread) {
         Process process = thread.getProcess();
+        recordProcess(process, thread.getWaitingTime(), thread.getTurnaroundTime(), calculateResponseTime(thread));
+    }
+
+    public void recordProcess(Process process, long waitingMillis, long turnaroundMillis, long responseMillis) {
         ProcessMetrics metrics = new ProcessMetrics();
-        
+
         metrics.pid = process.getPid();
         metrics.arrivalTime = process.getArrivalTime();
-        metrics.waitingTime = thread.getWaitingTime();
-        metrics.turnaroundTime = thread.getTurnaroundTime();
+        metrics.waitingTime = waitingMillis;
+        metrics.turnaroundTime = turnaroundMillis;
         metrics.burstTime = calculateTotalBurstTime(process);
-        metrics.responseTime = calculateResponseTime(thread);
-        
+        metrics.responseTime = responseMillis;
+
         processMetrics.add(metrics);
     }
 
@@ -51,6 +57,10 @@ public class MetricsCollector {
 
     public void addIdleTime(long time) {
         totalIdleTime += time;
+    }
+
+    public void addContextSwitchTime(long time) {
+        totalContextSwitchTime += time;
     }
 
     public void setPageFaults(int faults) {
@@ -111,7 +121,12 @@ public class MetricsCollector {
     public double getCPUUtilization() {
         long totalTime = simulationEndTime - simulationStartTime;
         if (totalTime == 0) return 0.0;
-        return (double) totalCPUTime / totalTime * 100.0;
+        long busyTime = totalCPUTime + totalContextSwitchTime;
+        return (double) busyTime / totalTime * 100.0;
+    }
+
+    public long getTotalContextSwitchTime() {
+        return totalContextSwitchTime;
     }
 
     public int getTotalPageFaults() {
@@ -145,6 +160,7 @@ public class MetricsCollector {
         report.append(String.format("Average Turnaround Time: %.2f ms\n", getAverageTurnaroundTime()));
         report.append(String.format("Average Response Time: %.2f ms\n", getAverageResponseTime()));
         report.append(String.format("CPU Utilization: %.2f%%\n", getCPUUtilization()));
+        report.append(String.format("Context Switch Time: %d ms\n", totalContextSwitchTime));
         
         report.append("\nMemory Metrics:\n");
         report.append(String.format("Total Page Faults: %d\n", totalPageFaults));

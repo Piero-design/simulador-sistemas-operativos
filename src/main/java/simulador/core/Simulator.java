@@ -1,7 +1,6 @@
 package simulador.core;
 
 import simulador.process.Process;
-import simulador.process.ProcessThread;
 import simulador.scheduler.*;
 import simulador.memory.*;
 import simulador.sync.SynchronizationManager;
@@ -17,33 +16,45 @@ import java.util.concurrent.*;
  * Simulador principal que coordina todos los módulos del sistema operativo
  */
 public class Simulator {
-    
+
     private final CPUScheduler scheduler;
     private final MemoryManager memoryManager;
     private final SynchronizationManager syncManager;
     private final IOManager ioManager;
     private final MetricsCollector metricsCollector;
     private final List<Process> processes;
-    private final List<ProcessThread> processThreads;
     private final ExecutorService executor;
     private final List<SimulationListener> listeners;
-    
+    private final Map<String, Integer> waitingTimeUnits;
+    private final Map<String, Integer> responseTimeUnits;
+    private final Map<String, Integer> completionTimeUnits;
+    private final int contextSwitchCost;
     private volatile boolean running;
     private int currentTime;
-    // removed lastSelectedPid: ProcessThread now notifies END directly
+    private int contextSwitchRemaining;
+    private int contextSwitchStartTime;
 
     public Simulator(CPUScheduler scheduler, MemoryManager memoryManager) {
+        this(scheduler, memoryManager, 0);
+    }
+
+    public Simulator(CPUScheduler scheduler, MemoryManager memoryManager, int contextSwitchCost) {
         this.scheduler = scheduler;
         this.memoryManager = memoryManager;
         this.syncManager = new SynchronizationManager();
         this.ioManager = new IOManager();
         this.metricsCollector = new MetricsCollector();
         this.processes = new ArrayList<>();
-        this.processThreads = new ArrayList<>();
         this.executor = Executors.newCachedThreadPool();
         this.listeners = new ArrayList<>();
         this.running = false;
         this.currentTime = 0;
+        this.waitingTimeUnits = new HashMap<>();
+        this.responseTimeUnits = new HashMap<>();
+        this.completionTimeUnits = new HashMap<>();
+        this.contextSwitchCost = Math.max(0, contextSwitchCost);
+        this.contextSwitchRemaining = 0;
+        this.contextSwitchStartTime = 0;
     }
 
     /**
@@ -85,6 +96,14 @@ public class Simulator {
             // Ordenar procesos por tiempo de llegada
             processes.sort(Comparator.comparingInt(Process::getArrivalTime));
 
+            waitingTimeUnits.clear();
+            responseTimeUnits.clear();
+            completionTimeUnits.clear();
+            synchronized (this) {
+                currentTime = 0;
+            }
+            contextSwitchRemaining = 0;
+
             // We'll run a single tick-driven loop here to avoid races between threads.
             Map<String, Integer> remainingBurst = new HashMap<>();
             Map<String, Integer> quantumRemaining = new HashMap<>();
@@ -92,6 +111,18 @@ public class Simulator {
             int currentQuantumLeft = Integer.MAX_VALUE;
 
             while (running && !allProcessesTerminated()) {
+                if (contextSwitchRemaining > 0) {
+                    Thread.sleep(100);
+                    metricsCollector.addContextSwitchTime(100L);
+                    advanceTime(1);
+                    accumulateWaitingTime(null);
+                    contextSwitchRemaining--;
+                    if (contextSwitchRemaining == 0) {
+                        notifyContextSwitch(contextSwitchStartTime, getCurrentTime());
+                    }
+                    continue;
+                }
+
                 // 1) Handle any I/O completions first
                 IOManager.IOCompletion completion;
                 while ((completion = ioManager.pollCompletion()) != null) {
@@ -130,6 +161,13 @@ public class Simulator {
                         if (scheduler instanceof RoundRobin) q = ((RoundRobin) scheduler).getQuantum();
                         quantumRemaining.put(currentProcess.getPid(), q);
                         currentQuantumLeft = quantumRemaining.get(currentProcess.getPid());
+                        if (!responseTimeUnits.containsKey(currentProcess.getPid())) {
+                            int responseUnits = Math.max(0, getCurrentTime() - currentProcess.getArrivalTime());
+                            responseTimeUnits.put(currentProcess.getPid(), responseUnits);
+                            if (currentProcess.getStartTime() == 0) {
+                                currentProcess.setStartTime(System.currentTimeMillis());
+                            }
+                        }
                         notifyProcessExecStart(currentProcess, getCurrentTime());
                     }
                 }
@@ -148,6 +186,8 @@ public class Simulator {
 
                     // advance logical time by 1
                     advanceTime(1);
+
+                    accumulateWaitingTime(pid);
 
                     // Check burst completion
                     if (rem <= 0) {
@@ -174,10 +214,14 @@ public class Simulator {
                         } else {
                             // Process finished all bursts
                             currentProcess.setState(Process.State.TERMINATED);
+                            completionTimeUnits.put(pid, getCurrentTime());
                             // ensure maps cleaned
                             remainingBurst.remove(pid);
                             quantumRemaining.remove(pid);
                             currentProcess.setFinishTime(System.currentTimeMillis());
+                        }
+                        if (!allProcessesTerminated()) {
+                            startContextSwitch(pid);
                         }
                         currentProcess = null;
                     } else if (qleft <= 0) {
@@ -185,12 +229,15 @@ public class Simulator {
                         notifyProcessExecEnd(currentProcess, getCurrentTime());
                         currentProcess.setState(Process.State.READY);
                         scheduler.addProcess(currentProcess);
+                        startContextSwitch(pid);
                         currentProcess = null;
                     }
                 } else {
                     // idle tick
                     Thread.sleep(100);
+                    metricsCollector.addIdleTime(100L);
                     advanceTime(1);
+                    accumulateWaitingTime(null);
                 }
             }
 
@@ -215,8 +262,13 @@ public class Simulator {
         metricsCollector.endSimulation();
 
         // Recolectar métricas
-        for (ProcessThread thread : processThreads) {
-            metricsCollector.recordProcess(thread);
+        for (Process process : processes) {
+            String pid = process.getPid();
+            long waitingMs = waitingTimeUnits.getOrDefault(pid, 0) * 100L;
+            int completionUnits = completionTimeUnits.getOrDefault(pid, getCurrentTime());
+            long turnaroundMs = Math.max(0, completionUnits - process.getArrivalTime()) * 100L;
+            long responseMs = responseTimeUnits.getOrDefault(pid, 0) * 100L;
+            metricsCollector.recordProcess(process, waitingMs, turnaroundMs, responseMs);
         }
 
         metricsCollector.setPageFaults(memoryManager.getPageFaults());
@@ -236,15 +288,6 @@ public class Simulator {
             }
         }
         return true;
-    }
-
-    private ProcessThread findThreadByPid(String pid) {
-        for (ProcessThread thread : processThreads) {
-            if (thread.getProcess().getPid().equals(pid)) {
-                return thread;
-            }
-        }
-        return null;
     }
 
     private Process findProcessByPid(String pid) {
@@ -339,6 +382,17 @@ public class Simulator {
         }
     }
 
+    private void startContextSwitch(String fromPid) {
+        if (contextSwitchCost <= 0) {
+            return;
+        }
+        if (contextSwitchRemaining > 0) {
+            return;
+        }
+        contextSwitchRemaining = contextSwitchCost;
+        contextSwitchStartTime = getCurrentTime();
+    }
+
     /**
      * Interfaz para escuchar eventos de simulación
      */
@@ -352,6 +406,7 @@ public class Simulator {
         default void onTimeAdvanced(int time) {}
         default void onProcessExecStart(Process process, int time) {}
         default void onProcessExecEnd(Process process, int time) {}
+        default void onContextSwitch(int startTime, int endTime) {}
     }
 
     public void notifyProcessExecStart(Process process, int time) {
@@ -374,6 +429,30 @@ public class Simulator {
             SimulationLogger.log("END " + process.getPid() + " " + time);
         } catch (Exception e) {
             System.err.println("[Simulator] Failed to write exec end log: " + e.getMessage());
+        }
+    }
+
+    private void notifyContextSwitch(int startTime, int endTime) {
+        if (endTime <= startTime) {
+            return;
+        }
+        for (SimulationListener listener : listeners) {
+            listener.onContextSwitch(startTime, endTime);
+        }
+        try {
+            SimulationLogger.log("CS " + startTime + " " + endTime);
+        } catch (Exception e) {
+            System.err.println("[Simulator] Failed to write context switch log: " + e.getMessage());
+        }
+    }
+
+    private void accumulateWaitingTime(String runningPidThisTick) {
+        for (Process process : processes) {
+            if (process.getState() == Process.State.READY) {
+                if (runningPidThisTick == null || !process.getPid().equals(runningPidThisTick)) {
+                    waitingTimeUnits.merge(process.getPid(), 1, Integer::sum);
+                }
+            }
         }
     }
 }

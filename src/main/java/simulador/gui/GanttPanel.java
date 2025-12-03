@@ -19,6 +19,7 @@ public class GanttPanel extends JPanel {
     private static final int TOP_MARGIN = 50;
     private static final int LEFT_MARGIN = 80;
     private static final int BOTTOM_MARGIN = 50;
+    private static final Color CONTEXT_SWITCH_COLOR = new Color(169, 169, 169);
     
     private Map<String, Color> processColors;
     private int colorIndex = 0;
@@ -53,19 +54,28 @@ public class GanttPanel extends JPanel {
      * Agrega una entrada al diagrama de Gantt
      */
     public void addEntry(String pid, int startTime, int endTime) {
-        GanttEntry entry = new GanttEntry(pid, startTime, endTime);
+        addEntry(pid, startTime, endTime, false);
+    }
+
+    private void addEntry(String pid, int startTime, int endTime, boolean contextSwitch) {
+        if (endTime <= startTime) {
+            return;
+        }
+
+        GanttEntry entry = new GanttEntry(pid, startTime, endTime, contextSwitch);
         ganttData.add(entry);
-        
-        // Asignar color al proceso si no lo tiene
-        if (!processColors.containsKey(pid)) {
+
+        if (!contextSwitch && !processColors.containsKey(pid)) {
             processColors.put(pid, COLORS[colorIndex % COLORS.length]);
             colorIndex++;
         }
-        
-        // Actualizar tiempo máximo
+
         maxTime = Math.max(maxTime, endTime);
-        
         repaint();
+    }
+
+    public void addContextSwitch(int startTime, int endTime) {
+        addEntry("CS", startTime, endTime, true);
     }
 
     /**
@@ -156,7 +166,10 @@ public class GanttPanel extends JPanel {
             }
             
             // Rectángulo de proceso
-            Color color = processColors.get(entry.pid);
+            Color color = entry.contextSwitch ? CONTEXT_SWITCH_COLOR : processColors.get(entry.pid);
+            if (color == null) {
+                color = CONTEXT_SWITCH_COLOR;
+            }
             g2d.setColor(color);
             g2d.fillRect(startX, y, width, PROCESS_HEIGHT);
             
@@ -168,16 +181,16 @@ public class GanttPanel extends JPanel {
             // Texto del PID
             g2d.setFont(new Font("Arial", Font.BOLD, 14));
             FontMetrics fm = g2d.getFontMetrics();
-            String label = entry.pid;
+            String label = entry.contextSwitch ? "CS" : entry.pid;
             int textX = startX + (width - fm.stringWidth(label)) / 2;
             int textY = y + (PROCESS_HEIGHT + fm.getAscent()) / 2 - 2;
             
             // Sombra del texto
             g2d.setColor(Color.BLACK);
             g2d.drawString(label, textX + 1, textY + 1);
-            
+
             // Texto principal
-            g2d.setColor(Color.WHITE);
+            g2d.setColor(entry.contextSwitch ? Color.BLACK : Color.WHITE);
             g2d.drawString(label, textX, textY);
         }
     }
@@ -217,6 +230,15 @@ public class GanttPanel extends JPanel {
                 legendY += 20;
             }
         }
+
+        boolean hasContextSwitch = ganttData.stream().anyMatch(e -> e.contextSwitch);
+        if (hasContextSwitch) {
+            g2d.setColor(CONTEXT_SWITCH_COLOR);
+            g2d.fillRect(x + spacing, legendY - 10, 15, 15);
+            g2d.setColor(Color.BLACK);
+            g2d.drawRect(x + spacing, legendY - 10, 15, 15);
+            g2d.drawString("CS (Cambio de contexto)", x + spacing + 20, legendY);
+        }
     }
 
     /**
@@ -239,12 +261,14 @@ public class GanttPanel extends JPanel {
         sb.append("=== RESUMEN DE EJECUCIÓN ===\n");
         sb.append(String.format("Tiempo total: %d unidades\n", maxTime));
         sb.append(String.format("Procesos ejecutados: %d\n", processColors.size()));
-        sb.append(String.format("Cambios de contexto: %d\n", ganttData.size() - 1));
+        int contextSwitches = (int) ganttData.stream().filter(entry -> entry.contextSwitch).count();
+        sb.append(String.format("Cambios de contexto: %d\n", contextSwitches));
         sb.append("\nSecuencia de ejecución:\n");
         
         for (GanttEntry entry : ganttData) {
-            sb.append(String.format("  %s: [%d-%d] (%d unidades)\n", 
-                entry.pid, entry.startTime, entry.endTime, 
+            String label = entry.contextSwitch ? "[CS]" : entry.pid;
+            sb.append(String.format("  %s: [%d-%d] (%d unidades)\n",
+                label, entry.startTime, entry.endTime,
                 entry.endTime - entry.startTime));
         }
         
@@ -255,14 +279,16 @@ public class GanttPanel extends JPanel {
      * Clase interna para representar una entrada del diagrama de Gantt
      */
     private static class GanttEntry {
-        String pid;
-        int startTime;
-        int endTime;
+        final String pid;
+        final int startTime;
+        final int endTime;
+        final boolean contextSwitch;
 
-        GanttEntry(String pid, int startTime, int endTime) {
+        GanttEntry(String pid, int startTime, int endTime, boolean contextSwitch) {
             this.pid = pid;
             this.startTime = startTime;
             this.endTime = endTime;
+            this.contextSwitch = contextSwitch;
         }
     }
 

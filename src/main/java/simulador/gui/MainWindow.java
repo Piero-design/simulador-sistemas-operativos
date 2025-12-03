@@ -32,6 +32,7 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
     private JComboBox<String> memoryAlgoCombo;
     private JSpinner framesSpinner;
     private JSpinner quantumSpinner;
+    private JSpinner contextSwitchSpinner;
     private JTextField filePathField;
     
     private JButton loadButton;
@@ -61,6 +62,7 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         memoryAlgoCombo = new JComboBox<>(new String[]{"FIFO", "LRU", "Optimal"});
         framesSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 50, 1));
         quantumSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 10, 1));
+        contextSwitchSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 10, 1));
         filePathField = new JTextField("procesos.txt");
         
         // Botones
@@ -201,8 +203,16 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         gbc.gridx = 3;
         panel.add(framesSpinner, gbc);
         
+        // Fila 4 - Costo de cambio de contexto
+        gbc.gridx = 0; gbc.gridy = 3;
+        panel.add(new JLabel("Costo cambio de contexto:"), gbc);
+        gbc.gridx = 1;
+        panel.add(contextSwitchSpinner, gbc);
+        gbc.gridx = 2;
+        panel.add(new JLabel("(unidades)"), gbc);
+
         // Fila 4 - Botones de control
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 4;
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 4;
         gbc.anchor = GridBagConstraints.CENTER;
         JPanel buttonPanel = new JPanel(new FlowLayout());
         buttonPanel.add(startButton);
@@ -236,9 +246,10 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
             // Crear gestor de memoria
             int frames = (Integer) framesSpinner.getValue();
             MemoryManager memoryManager = new MemoryManager(frames, pageAlgo);
+            int contextSwitchCost = (Integer) contextSwitchSpinner.getValue();
             
             // Crear simulador
-            simulator = new Simulator(scheduler, memoryManager);
+            simulator = new Simulator(scheduler, memoryManager, contextSwitchCost);
             simulator.addListener(this);
             
             // Cargar procesos
@@ -247,6 +258,7 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
             log("Procesos cargados exitosamente desde: " + filePath);
             log("Configuración: " + scheduler.getName() + " + " + pageAlgo.getName());
             log("Marcos de memoria: " + frames);
+            log("Costo de cambio de contexto: " + contextSwitchCost + " unidades");
             
             startButton.setEnabled(true);
             loadButton.setEnabled(false);
@@ -439,6 +451,11 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
                 lastRunningProcess = null;
             }
         });
+    }
+
+    @Override
+    public void onContextSwitch(int startTime, int endTime) {
+        SwingUtilities.invokeLater(() -> ganttPanel.addContextSwitch(startTime, endTime));
     }
 
     @Override
