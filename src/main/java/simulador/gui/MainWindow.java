@@ -12,6 +12,8 @@ import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainWindow extends JFrame implements Simulator.SimulationListener {
 
@@ -43,6 +45,7 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
     // Variables para tracking del Gantt
     private String lastRunningProcess = null;
     private int lastExecutionTime = 0;
+    private final Map<String, Integer> ioActiveBursts = new HashMap<>();
 
     public MainWindow() {
         setTitle("Simulador de Sistema Operativo - Planificación y Memoria Virtual");
@@ -254,6 +257,14 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
             
             // Cargar procesos
             simulator.loadProcessesFromFile(filePath);
+
+            ganttPanel.clear();
+            ioActiveBursts.clear();
+            lastRunningProcess = null;
+            lastExecutionTime = 0;
+            metricsArea.setText("");
+            progressBar.setValue(0);
+            timeLabel.setText("Tiempo: 0");
             
             log("Procesos cargados exitosamente desde: " + filePath);
             log("Configuración: " + scheduler.getName() + " + " + pageAlgo.getName());
@@ -336,6 +347,7 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         // Resetear tracking del Gantt
         lastRunningProcess = null;
         lastExecutionTime = 0;
+        ioActiveBursts.clear();
         
         loadButton.setEnabled(true);
         startButton.setEnabled(false);
@@ -364,12 +376,14 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
         memoryTableModel.setRowCount(0);
         if (simulator != null && simulator.getMemoryManager() != null) {
             boolean[] frames = simulator.getMemoryManager().getFrameOccupied();
+            Map<Integer, MemoryManager.FrameAllocation> allocations = simulator.getMemoryManager().getFrameAllocations();
             for (int i = 0; i < frames.length; i++) {
+                MemoryManager.FrameAllocation allocation = allocations.get(i);
                 memoryTableModel.addRow(new Object[]{
                         i,
                         frames[i] ? "Sí" : "No",
-                        frames[i] ? "?" : "-",
-                        frames[i] ? "?" : "-"
+                        allocation != null ? allocation.getPid() : (frames[i] ? "?" : "-"),
+                        allocation != null ? allocation.getPageNumber() : (frames[i] ? "?" : "-")
                 });
             }
         }
@@ -401,6 +415,15 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
             int currentTime = simulator.getCurrentTime();
             ganttPanel.addEntry(lastRunningProcess, lastExecutionTime, currentTime);
             lastRunningProcess = null;
+        }
+
+        if (!ioActiveBursts.isEmpty() && simulator != null) {
+            int currentTime = simulator.getCurrentTime();
+            Map<String, Integer> snapshot = new HashMap<>(ioActiveBursts);
+            ioActiveBursts.clear();
+            for (Map.Entry<String, Integer> entry : snapshot.entrySet()) {
+                ganttPanel.addIoEntry(entry.getKey(), entry.getValue(), currentTime);
+            }
         }
         
         // Mostrar métricas
@@ -461,7 +484,27 @@ public class MainWindow extends JFrame implements Simulator.SimulationListener {
     @Override
     public void onIOCompleted(Process process) {
         log("Proceso " + process.getPid() + " completó E/S");
-        SwingUtilities.invokeLater(this::updateProcessTable);
+    }
+
+    @Override
+    public void onIOStarted(Process process, int startTime, int duration) {
+        log("Proceso " + process.getPid() + " inició E/S (" + duration + " unidades)");
+        SwingUtilities.invokeLater(() -> {
+            ioActiveBursts.put(process.getPid(), startTime);
+            updateProcessTable();
+        });
+    }
+
+    @Override
+    public void onIOCompleted(Process process, int time) {
+        SwingUtilities.invokeLater(() -> {
+            Integer start = ioActiveBursts.remove(process.getPid());
+            if (start != null) {
+                ganttPanel.addIoEntry(process.getPid(), start, time);
+            }
+            updateProcessTable();
+            updateMemoryTable();
+        });
     }
 
     @Override

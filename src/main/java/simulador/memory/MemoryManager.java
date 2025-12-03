@@ -140,6 +140,15 @@ public class MemoryManager {
         return frameOccupied.clone();
     }
 
+    public synchronized Map<Integer, FrameAllocation> getFrameAllocations() {
+        Map<Integer, FrameAllocation> snapshot = new HashMap<>();
+        for (Map.Entry<Integer, PageEntry> entry : frameToPage.entrySet()) {
+            PageEntry value = entry.getValue();
+            snapshot.put(entry.getKey(), new FrameAllocation(value.pid, value.pageNumber));
+        }
+        return snapshot;
+    }
+
     public String getAlgorithmName() {
         return replacementAlgorithm.getName();
     }
@@ -184,6 +193,24 @@ public class MemoryManager {
     }
 
     // Clase interna para rastrear qué página está en qué marco
+    public static class FrameAllocation {
+        private final String pid;
+        private final int pageNumber;
+
+        public FrameAllocation(String pid, int pageNumber) {
+            this.pid = pid;
+            this.pageNumber = pageNumber;
+        }
+
+        public String getPid() {
+            return pid;
+        }
+
+        public int getPageNumber() {
+            return pageNumber;
+        }
+    }
+
     private static class PageEntry {
         String pid;
         int pageNumber;

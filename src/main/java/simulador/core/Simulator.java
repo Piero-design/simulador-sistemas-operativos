@@ -130,13 +130,16 @@ public class Simulator {
                     if (p != null) {
                         p.setState(Process.State.READY);
                         scheduler.addProcess(p);
-                        notifyIOCompleted(p);
+                        notifyIOCompleted(p, getCurrentTime());
                     }
                 }
 
                 // 2) Handle arrivals at this time
                 for (Process process : processes) {
                     if (process.getState() == Process.State.NEW && process.getArrivalTime() <= getCurrentTime()) {
+                        if (memoryManager != null) {
+                            memoryManager.initializeProcess(process);
+                        }
                         scheduler.addProcess(process);
                         process.setState(Process.State.READY);
                         notifyProcessArrived(process);
@@ -147,6 +150,9 @@ public class Simulator {
                 if (currentProcess == null) {
                     currentProcess = scheduler.getNextProcess();
                     if (currentProcess != null) {
+                        if (memoryManager != null) {
+                            memoryManager.loadPages(currentProcess, currentProcess.getPages());
+                        }
                         // Initialize remaining burst if needed (do NOT reset on every selection)
                         int idx = currentProcess.getCurrentBurstIndex();
                         String burst = currentProcess.getBursts().get(idx);
@@ -206,6 +212,7 @@ public class Simulator {
                                 int dur = Integer.parseInt(nextBurst.substring(s, e));
                                 currentProcess.setState(Process.State.BLOCKED);
                                 ioManager.startIOOperation(currentProcess, dur * 100);
+                                notifyIOStarted(currentProcess, getCurrentTime(), dur);
                             } else {
                                 // Next is CPU: requeue
                                 currentProcess.setState(Process.State.READY);
@@ -219,6 +226,9 @@ public class Simulator {
                             remainingBurst.remove(pid);
                             quantumRemaining.remove(pid);
                             currentProcess.setFinishTime(System.currentTimeMillis());
+                            if (memoryManager != null) {
+                                memoryManager.releaseProcessPages(pid);
+                            }
                         }
                         if (!allProcessesTerminated()) {
                             startContextSwitch(pid);
@@ -370,12 +380,6 @@ public class Simulator {
         }
     }
 
-    private void notifyIOCompleted(Process process) {
-        for (SimulationListener listener : listeners) {
-            listener.onIOCompleted(process);
-        }
-    }
-
     private void notifyTimeAdvanced(int time) {
         for (SimulationListener listener : listeners) {
             listener.onTimeAdvanced(time);
@@ -407,6 +411,8 @@ public class Simulator {
         default void onProcessExecStart(Process process, int time) {}
         default void onProcessExecEnd(Process process, int time) {}
         default void onContextSwitch(int startTime, int endTime) {}
+        default void onIOStarted(Process process, int startTime, int duration) {}
+        default void onIOCompleted(Process process, int time) {}
     }
 
     public void notifyProcessExecStart(Process process, int time) {
@@ -418,6 +424,19 @@ public class Simulator {
             SimulationLogger.log("START " + process.getPid() + " " + time);
         } catch (Exception e) {
             System.err.println("[Simulator] Failed to write exec start log: " + e.getMessage());
+        }
+    }
+
+    private void notifyIOStarted(Process process, int startTime, int duration) {
+        for (SimulationListener listener : listeners) {
+            listener.onIOStarted(process, startTime, duration);
+        }
+    }
+
+    private void notifyIOCompleted(Process process, int time) {
+        for (SimulationListener listener : listeners) {
+            listener.onIOCompleted(process);
+            listener.onIOCompleted(process, time);
         }
     }
 

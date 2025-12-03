@@ -12,7 +12,8 @@ import java.util.List;
  */
 public class GanttPanel extends JPanel {
     
-    private List<GanttEntry> ganttData;
+    private final List<GanttEntry> cpuData;
+    private final List<GanttEntry> ioData;
     private int maxTime;
     private int pixelsPerUnit = 30;
     private static final int PROCESS_HEIGHT = 40;
@@ -35,11 +36,12 @@ public class GanttPanel extends JPanel {
     };
 
     public GanttPanel() {
-        ganttData = new ArrayList<>();
+        cpuData = new ArrayList<>();
+        ioData = new ArrayList<>();
         processColors = new HashMap<>();
         maxTime = 0;
         
-        setPreferredSize(new Dimension(800, 300));
+        setPreferredSize(new Dimension(800, 380));
         setBackground(Color.WHITE);
         setBorder(BorderFactory.createTitledBorder(
             BorderFactory.createLineBorder(Color.GRAY, 1),
@@ -54,16 +56,20 @@ public class GanttPanel extends JPanel {
      * Agrega una entrada al diagrama de Gantt
      */
     public void addEntry(String pid, int startTime, int endTime) {
-        addEntry(pid, startTime, endTime, false);
+        addCpuEntry(pid, startTime, endTime);
     }
 
-    private void addEntry(String pid, int startTime, int endTime, boolean contextSwitch) {
+    public void addCpuEntry(String pid, int startTime, int endTime) {
+        addSegment(cpuData, pid, startTime, endTime, false);
+    }
+
+    private void addSegment(List<GanttEntry> target, String pid, int startTime, int endTime, boolean contextSwitch) {
         if (endTime <= startTime) {
             return;
         }
 
         GanttEntry entry = new GanttEntry(pid, startTime, endTime, contextSwitch);
-        ganttData.add(entry);
+        target.add(entry);
 
         if (!contextSwitch && !processColors.containsKey(pid)) {
             processColors.put(pid, COLORS[colorIndex % COLORS.length]);
@@ -75,14 +81,19 @@ public class GanttPanel extends JPanel {
     }
 
     public void addContextSwitch(int startTime, int endTime) {
-        addEntry("CS", startTime, endTime, true);
+        addSegment(cpuData, "CS", startTime, endTime, true);
+    }
+
+    public void addIoEntry(String pid, int startTime, int endTime) {
+        addSegment(ioData, pid, startTime, endTime, false);
     }
 
     /**
      * Limpia el diagrama
      */
     public void clear() {
-        ganttData.clear();
+        cpuData.clear();
+        ioData.clear();
         processColors.clear();
         maxTime = 0;
         colorIndex = 0;
@@ -95,7 +106,7 @@ public class GanttPanel extends JPanel {
         Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        if (ganttData.isEmpty()) {
+        if (cpuData.isEmpty() && ioData.isEmpty()) {
             // Mostrar mensaje cuando no hay datos
             g2d.setColor(Color.GRAY);
             g2d.setFont(new Font("Arial", Font.PLAIN, 14));
@@ -107,18 +118,23 @@ public class GanttPanel extends JPanel {
             return;
         }
 
-        // Dibujar eje de tiempo
-        drawTimeAxis(g2d);
-        
         // Dibujar barras del diagrama
         drawGanttBars(g2d);
+        drawIoBars(g2d);
+        
+        // Dibujar eje de tiempo
+        drawTimeAxis(g2d);
         
         // Dibujar leyenda
         drawLegend(g2d);
     }
 
     private void drawTimeAxis(Graphics2D g2d) {
-        int y = TOP_MARGIN + PROCESS_HEIGHT + 10;
+        int y = TOP_MARGIN + PROCESS_HEIGHT;
+        if (!ioData.isEmpty()) {
+            y += PROCESS_HEIGHT + 40;
+        }
+        y += 10;
         int endX = LEFT_MARGIN + maxTime * pixelsPerUnit;
         
         // Línea principal del eje
@@ -147,56 +163,69 @@ public class GanttPanel extends JPanel {
         g2d.drawString("Tiempo (unidades)", LEFT_MARGIN, y + 40);
     }
 
-    private void drawGanttBars(Graphics2D g2d) {
-        int y = TOP_MARGIN;
-        
-        // Etiqueta "Procesos"
+    private void drawTrack(Graphics2D g2d, List<GanttEntry> data, int y, String label, boolean allowContextSwitch) {
         g2d.setColor(Color.BLACK);
         g2d.setFont(new Font("Arial", Font.BOLD, 12));
-        g2d.drawString("CPU", 10, y + PROCESS_HEIGHT / 2 + 5);
-        
-        // Dibujar cada entrada
-        for (GanttEntry entry : ganttData) {
+        g2d.drawString(label, 10, y + PROCESS_HEIGHT / 2 + 5);
+
+        for (GanttEntry entry : data) {
             int startX = LEFT_MARGIN + entry.startTime * pixelsPerUnit;
             int width = (entry.endTime - entry.startTime) * pixelsPerUnit;
-            
-            if (startX > getWidth() - 30) break;
+
+            if (startX > getWidth() - 30) {
+                continue;
+            }
             if (startX + width > getWidth() - 30) {
                 width = getWidth() - 30 - startX;
             }
-            
-            // Rectángulo de proceso
+
             Color color = entry.contextSwitch ? CONTEXT_SWITCH_COLOR : processColors.get(entry.pid);
             if (color == null) {
                 color = CONTEXT_SWITCH_COLOR;
             }
+            if (!allowContextSwitch && entry.contextSwitch) {
+                color = CONTEXT_SWITCH_COLOR;
+            }
+
             g2d.setColor(color);
             g2d.fillRect(startX, y, width, PROCESS_HEIGHT);
-            
-            // Borde
+
             g2d.setColor(Color.BLACK);
             g2d.setStroke(new BasicStroke(1));
             g2d.drawRect(startX, y, width, PROCESS_HEIGHT);
-            
-            // Texto del PID
+
             g2d.setFont(new Font("Arial", Font.BOLD, 14));
             FontMetrics fm = g2d.getFontMetrics();
-            String label = entry.contextSwitch ? "CS" : entry.pid;
-            int textX = startX + (width - fm.stringWidth(label)) / 2;
+            String textLabel = entry.contextSwitch ? "CS" : entry.pid;
+            int textX = startX + (width - fm.stringWidth(textLabel)) / 2;
             int textY = y + (PROCESS_HEIGHT + fm.getAscent()) / 2 - 2;
-            
-            // Sombra del texto
-            g2d.setColor(Color.BLACK);
-            g2d.drawString(label, textX + 1, textY + 1);
 
-            // Texto principal
+            g2d.setColor(Color.BLACK);
+            g2d.drawString(textLabel, textX + 1, textY + 1);
+
             g2d.setColor(entry.contextSwitch ? Color.BLACK : Color.WHITE);
-            g2d.drawString(label, textX, textY);
+            g2d.drawString(textLabel, textX, textY);
         }
+    }
+
+    private void drawGanttBars(Graphics2D g2d) {
+        int cpuY = TOP_MARGIN;
+        drawTrack(g2d, cpuData, cpuY, "CPU", true);
+    }
+
+    private void drawIoBars(Graphics2D g2d) {
+        if (ioData.isEmpty()) {
+            return;
+        }
+        int ioY = TOP_MARGIN + PROCESS_HEIGHT + 40;
+        drawTrack(g2d, ioData, ioY, "E/S", false);
     }
 
     private void drawLegend(Graphics2D g2d) {
         int legendY = TOP_MARGIN + PROCESS_HEIGHT + 70;
+        if (!ioData.isEmpty()) {
+            legendY += PROCESS_HEIGHT + 40;
+        }
         int legendX = LEFT_MARGIN;
         
         g2d.setFont(new Font("Arial", Font.BOLD, 11));
@@ -231,7 +260,7 @@ public class GanttPanel extends JPanel {
             }
         }
 
-        boolean hasContextSwitch = ganttData.stream().anyMatch(e -> e.contextSwitch);
+        boolean hasContextSwitch = cpuData.stream().anyMatch(e -> e.contextSwitch);
         if (hasContextSwitch) {
             g2d.setColor(CONTEXT_SWITCH_COLOR);
             g2d.fillRect(x + spacing, legendY - 10, 15, 15);
@@ -253,7 +282,7 @@ public class GanttPanel extends JPanel {
      * Obtiene información de la última ejecución
      */
     public String getExecutionSummary() {
-        if (ganttData.isEmpty()) {
+        if (cpuData.isEmpty() && ioData.isEmpty()) {
             return "Sin datos de ejecución";
         }
         
@@ -261,15 +290,24 @@ public class GanttPanel extends JPanel {
         sb.append("=== RESUMEN DE EJECUCIÓN ===\n");
         sb.append(String.format("Tiempo total: %d unidades\n", maxTime));
         sb.append(String.format("Procesos ejecutados: %d\n", processColors.size()));
-        int contextSwitches = (int) ganttData.stream().filter(entry -> entry.contextSwitch).count();
+        int contextSwitches = (int) cpuData.stream().filter(entry -> entry.contextSwitch).count();
         sb.append(String.format("Cambios de contexto: %d\n", contextSwitches));
         sb.append("\nSecuencia de ejecución:\n");
         
-        for (GanttEntry entry : ganttData) {
+        for (GanttEntry entry : cpuData) {
             String label = entry.contextSwitch ? "[CS]" : entry.pid;
             sb.append(String.format("  %s: [%d-%d] (%d unidades)\n",
                 label, entry.startTime, entry.endTime,
                 entry.endTime - entry.startTime));
+        }
+
+        if (!ioData.isEmpty()) {
+            sb.append("\nRáfagas de E/S:\n");
+            for (GanttEntry entry : ioData) {
+                sb.append(String.format("  %s: [%d-%d] (%d unidades)\n",
+                    entry.pid, entry.startTime, entry.endTime,
+                    entry.endTime - entry.startTime));
+            }
         }
         
         return sb.toString();
